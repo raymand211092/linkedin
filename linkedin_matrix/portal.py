@@ -469,6 +469,18 @@ class Portal(DBPortal, BasePortal):
                         self.mxid, bot=self.main_intent
                     )
 
+            if source.space_mxid:
+                try:
+                    await self.az.intent.invite_user(
+                        source.space_mxid, puppet.custom_mxid or puppet.mxid
+                    )
+                    await puppet.intent.join_room_by_id(source.space_mxid)
+                except Exception as e:
+                    self.log.warning(
+                        f"Failed to invite and join puppet {puppet.li_member_urn} to "
+                        f"space {source.space_mxid}: {e}"
+                    )
+
         return changed
 
     # endregion
@@ -603,6 +615,18 @@ class Portal(DBPortal, BasePortal):
                         f"Failed to add bridge bot to new private chat {self.mxid}"
                     )
 
+            if source.space_mxid:
+                try:
+                    await self.az.intent.send_state_event(
+                        source.space_mxid,
+                        EventType.SPACE_CHILD,
+                        {"via": [self.config["homeserver.domain"]], "suggested": True},
+                        state_key=str(self.mxid),
+                    )
+                    await self.az.intent.invite_user(source.space_mxid, source.mxid)
+                except Exception:
+                    self.log.warning(f"Failed to add chat {self.mxid} to user's space")
+
             await self.save()
             self.log.debug(f"Matrix room created: {self.mxid}")
             self.by_mxid[self.mxid] = self
@@ -640,6 +664,25 @@ class Portal(DBPortal, BasePortal):
                         levels.events_default = 50
                         await self.main_intent.set_power_levels(self.mxid, levels)
 
+                puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
+                if puppet:
+                    try:
+                        did_join = await puppet.intent.join_room_by_id(self.mxid)
+                        if did_join:
+                            await source.update_direct_chats(
+                                {self.main_intent.mxid: [self.mxid]}
+                            )
+                        if source.space_mxid:
+                            await self.az.intent.invite_user(
+                                source.space_mxid, puppet.custom_mxid
+                            )
+                            await puppet.intent.join_room_by_id(source.space_mxid)
+                    except MatrixError:
+                        self.log.debug(
+                            "Failed to join custom puppet into newly created portal",
+                            exc_info=True,
+                        )
+
             await self._update_participants(source, conversation)
 
             try:
@@ -665,6 +708,14 @@ class Portal(DBPortal, BasePortal):
         )
         if puppet and puppet.is_real_user:
             await puppet.intent.ensure_joined(self.mxid)
+
+        if source.space_mxid and self.mxid:
+            await self.az.intent.send_state_event(
+                source.space_mxid,
+                EventType.SPACE_CHILD,
+                {"via": [self.config["homeserver.domain"]], "suggested": True},
+                state_key=str(self.mxid),
+            )
         await self.update_info(source, conversation)
 
     @property
@@ -855,6 +906,14 @@ class Portal(DBPortal, BasePortal):
                     "Cleaning up and deleting..."
                 )
                 await self.cleanup_and_delete()
+
+                if user.space_mxid:
+                    await self.az.intent.send_state_event(
+                        user.space_mxid,
+                        EventType.SPACE_CHILD,
+                        {},
+                        state_key=str(self.mxid),
+                    )
         else:
             self.log.debug(f"{user.mxid} left portal to {self.li_other_user_urn}")
 
