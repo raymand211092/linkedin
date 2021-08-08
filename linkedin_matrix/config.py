@@ -48,6 +48,7 @@ class Config(BaseBridgeConfig):
         copy("bridge.displayname_template")
         copy("bridge.double_puppet_allow_discovery")
         copy("bridge.double_puppet_server_map")
+        copy("bridge.enable_space_per_user")
         copy("bridge.encryption.allow")
         copy("bridge.encryption.default")
         copy("bridge.encryption.key_sharing.allow")
